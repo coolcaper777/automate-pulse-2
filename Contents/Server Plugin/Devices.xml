@@ -1,0 +1,96 @@
+<?xml version="1.0"?>
+<Devices>
+    <Device type="custom" id="pulseHub">
+        <Name>Pulse 2 Hub</Name>
+        <ConfigUI>
+            <Field id="hubIP" type="textfield">
+                <Label>Hub IP Address:</Label>
+                <Description>Enter the IP address of your Pulse 2 Hub</Description>
+            </Field>
+        </ConfigUI>
+        <States>
+            <State id="hubStatus">
+                <ValueType>String</ValueType>
+                <TriggerLabel>Hub Status Changed</TriggerLabel>
+                <ControlPageLabel>Hub Status</ControlPageLabel>
+            </State>
+            <State id="hubModel">
+                <ValueType>String</ValueType>
+                <TriggerLabel>Hub Model Changed</TriggerLabel>
+                <ControlPageLabel>Hub Model</ControlPageLabel>
+            </State>
+            <State id="hubFirmware">
+                <ValueType>String</ValueType>
+                <TriggerLabel>Hub Firmware Changed</TriggerLabel>
+                <ControlPageLabel>Hub Firmware</ControlPageLabel>
+            </State>
+            <State id="hubMAC">
+                <ValueType>String</ValueType>
+                <TriggerLabel>Hub MAC Address Changed</TriggerLabel>
+                <ControlPageLabel>Hub MAC Address</ControlPageLabel>
+            </State>
+        </States>
+    </Device>
+    <Device type="dimmer" id="shadeDevice">
+        <Name>Shade</Name>
+        <SupportsBatteryLevel>true</SupportsBatteryLevel>
+        <ConfigUI>
+            <Field id="shadeID" type="textfield">
+                <Label>Shade ID:</Label>
+                <Description>Unique ID from the Pulse 2 Hub</Description>
+            </Field>
+            <Field id="defaultBrightness" type="textfield"
+                tooltip="Optionally set a default brightness level used whenever an On command is sent to this shade. If no value is entered, the shade will return to its previous brightness. Range is 1 to 100 percent.">
+                <Label>Default Brightness:</Label>
+            </Field>
+            <Field id="labelDefaultBrightness" type="label" alignWithControl="true" fontSize="small" fontColor="darkgray">
+                <Label>(1 - 100 percent) Optionally set a default brightness level for On commands.</Label>
+            </Field>
+            <Field id="logChanges" type="checkbox" defaultValue="True" hidden="false">
+                <Label>Log events and changes to Indigo log</Label>
+            </Field>
+        </ConfigUI>
+        <States>
+            <State id="batteryLevel">
+                <ValueType>Integer</ValueType>
+                <TriggerLabel>Battery Level Changed</TriggerLabel>
+                <ControlPageLabel>Battery Level</ControlPageLabel>
+                <Units>%</Units>
+            </State>
+            <State id="BatteryPercent">
+                <ValueType>Integer</ValueType>
+                <TriggerLabel>Battery Percent Changed</TriggerLabel>
+                <ControlPageLabel>Battery Percent</ControlPageLabel>
+                <Units>%</Units>
+            </State>
+            <State id="BatteryVolts">
+                <ValueType>String</ValueType>
+                <TriggerLabel>Battery Voltage Changed</TriggerLabel>
+                <ControlPageLabel>Battery Voltage</ControlPageLabel>
+                <Units>V</Units>
+            </State>
+            <State id="BlindPosition">
+                <ValueType>Integer</ValueType>
+                <TriggerLabel>Blind Position Changed</TriggerLabel>
+                <ControlPageLabel>Blind Position</ControlPageLabel>
+                <Units>%</Units>
+            </State>
+            <State id="BlindSignalStrength">
+                <ValueType>Integer</ValueType>
+                <TriggerLabel>Signal Strength Changed</TriggerLabel>
+                <ControlPageLabel>Signal Strength</ControlPageLabel>
+                <Units>dBm</Units>
+            </State>
+            <State id="shadeMoving">
+                <ValueType>Boolean</ValueType>
+                <TriggerLabel>Shade Moving Changed</TriggerLabel>
+                <ControlPageLabel>Shade Moving</ControlPageLabel>
+            </State>
+            <State id="shadeAction">
+                <ValueType>String</ValueType>
+                <TriggerLabel>Shade Action Changed</TriggerLabel>
+                <ControlPageLabel>Shade Action</ControlPageLabel>
+            </State>
+        </States>
+    </Device>
+</Devices>

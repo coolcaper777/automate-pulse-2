@@ -1,0 +1,11 @@
+<?xml version="1.0"?>
+<Actions>
+    <Action id="reconnectHub" deviceFilter="self.pulseHub">
+        <Name>Reconnect Hub</Name>
+        <CallbackMethod>reconnectHub</CallbackMethod>
+    </Action>
+    <Action id="stopShade" deviceFilter="self.shadeDevice">
+        <Name>Stop Shade</Name>
+        <CallbackMethod>stopShade</CallbackMethod>
+    </Action>
+</Actions>
