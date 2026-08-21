@@ -6,6 +6,15 @@ An [Indigo Domotics](https://www.indigodomo.com/) plugin that integrates **Rolle
 - **Requires:** Indigo Server API 3.1+
 - **Python dependency:** [`aiopulse2`](https://pypi.org/project/aiopulse2/) 0.10.0 (bundled)
 
+## Installation
+
+1. Download the latest release's `Automate Pulse 2.indigoPlugin.zip` from the [Releases page](https://github.com/coolcaper777/automate-pulse-2/releases) and unzip it — you'll get a folder named `Automate Pulse 2.indigoPlugin`.
+   - *(Cloning the repo instead? The checked-out folder is named `automate-pulse-2`, not `Automate Pulse 2.indigoPlugin` — rename it before installing, or Indigo won't recognize it as a plugin.)*
+2. Double-click `Automate Pulse 2.indigoPlugin` (or drag it onto the Indigo Server icon) to install, or copy it into `~/Library/Application Support/Perceptive Automation/Indigo <version>/Plugins/`.
+3. Restart the plugin from Indigo's Plugins menu.
+4. On first launch, Indigo installs the bundled Python dependency (`aiopulse2`, from `requirements.txt`) automatically — no manual `pip install` needed.
+5. Create a **Pulse 2 Hub** device with your hub's IP address; shades are then auto-discovered.
+
 ## What it does
 
 - Connects to one or more Pulse 2 Hubs over their local websocket API.
