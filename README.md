@@ -8,7 +8,7 @@ An [Indigo Domotics](https://www.indigodomo.com/) plugin that integrates **Rolle
 
 ## Installation
 
-1. Download the latest release's `Automate Pulse 2.indigoPlugin.zip` from the [Releases page](https://github.com/coolcaper777/automate-pulse-2/releases) and unzip it — you'll get a folder named `Automate Pulse 2.indigoPlugin`.
+1. Download the latest release's zip from the [Releases page](https://github.com/coolcaper777/automate-pulse-2/releases) — Safari extracts it automatically into a folder named `Automate Pulse 2.indigoPlugin`.
    - *(Cloning the repo instead? The checked-out folder is named `automate-pulse-2`, not `Automate Pulse 2.indigoPlugin` — rename it before installing, or Indigo won't recognize it as a plugin.)*
 2. Double-click `Automate Pulse 2.indigoPlugin` (or drag it onto the Indigo Server icon) to install, or copy it into `~/Library/Application Support/Perceptive Automation/Indigo <version>/Plugins/`.
 3. Restart the plugin from Indigo's Plugins menu.
