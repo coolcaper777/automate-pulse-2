@@ -2,12 +2,27 @@ import indigo
 indigo.server.log("Plugin file loaded - imports starting...")
 import asyncio
 import logging
-from aiopulse2 import Hub
+from typing import Optional
+from aiopulse2 import Hub, Roller
 from threading import Thread
 indigo.server.log("Imports completed successfully!")
 
 class Plugin(indigo.PluginBase):
-    def __init__(self, pluginId, pluginDisplayName, pluginVersion, pluginPrefs):
+    def __init__(self, pluginId: str, pluginDisplayName: str, pluginVersion: str, pluginPrefs: indigo.Dict) -> None:
+        """Initialize the plugin instance.
+
+        Sets the log handler level from the ``showDebugInfo`` preference, warns
+        if the running Indigo Server API is too old, and starts a dedicated
+        background thread running its own asyncio event loop - required because
+        the ``aiopulse2`` hub client is asyncio-based while Indigo's plugin
+        callbacks run synchronously on the main thread.
+
+        Args:
+            pluginId (str): This plugin's bundle identifier.
+            pluginDisplayName (str): The plugin's display name.
+            pluginVersion (str): The plugin's version string.
+            pluginPrefs (indigo.Dict): Saved plugin preferences.
+        """
         indigo.server.log("Entering __init__...")
         super().__init__(pluginId, pluginDisplayName, pluginVersion, pluginPrefs)
         self.debug = self.pluginPrefs.get("showDebugInfo", False)
@@ -34,22 +49,44 @@ class Plugin(indigo.PluginBase):
             self.logger.exception("Failed to start async loop")
         indigo.server.log("Exiting __init__...")
 
-    def run_loop(self):
+    def run_loop(self) -> None:
+        """Run this plugin's dedicated asyncio event loop forever.
+
+        Executes on the background thread started in ``__init__``; every
+        coroutine used to talk to a hub/shade is scheduled onto this loop via
+        ``asyncio.run_coroutine_threadsafe`` from the main Indigo thread.
+        """
         self.logger.info("Starting async event loop...")
         asyncio.set_event_loop(self.loop)
         self.loop.run_forever()
 
-    def startup(self):
+    def startup(self) -> None:
+        """Called once by Indigo when the plugin starts running."""
         self.logger.info("Automate Pulse 2 Plugin starting up...")
 
-    def closedPrefsConfigUi(self, valuesDict, userCancelled):
+    def closedPrefsConfigUi(self, valuesDict: indigo.Dict, userCancelled: bool) -> None:
+        """Apply the plugin preferences dialog's saved values.
+
+        Re-applies the debug logging level live so toggling it takes effect
+        immediately, without requiring a plugin restart.
+
+        Args:
+            valuesDict (indigo.Dict): The saved preference values.
+            userCancelled (bool): True if the dialog was cancelled instead of saved.
+        """
         if userCancelled:
             return
         self.debug = valuesDict.get("showDebugInfo", False)
         self.indigo_log_handler.setLevel(logging.DEBUG if self.debug else logging.INFO)
         self.logger.info(f"Debug logging {'enabled' if self.debug else 'disabled'}")
 
-    def shutdown(self):
+    def shutdown(self) -> None:
+        """Called once by Indigo when the plugin is stopping.
+
+        Cancels all per-hub background tasks, stops every hub connection
+        cleanly (with a 5s timeout each), then stops the background asyncio
+        event loop so its thread can exit.
+        """
         self.logger.info("Automate Pulse 2 Plugin shutting down...")
         # Cancel all battery refresh and heartbeat tasks
         for task in self.battery_refresh_tasks.values():
@@ -70,7 +107,15 @@ class Plugin(indigo.PluginBase):
         self.hubs.clear()
         self.loop.call_soon_threadsafe(self.loop.stop)
 
-    def deviceStartComm(self, dev):
+    def deviceStartComm(self, dev: indigo.Device) -> None:
+        """Start communication with a device when it's enabled/created.
+
+        For a Pulse 2 Hub device, kicks off the hub connection. For a Shade
+        device, registers it in ``self.shades`` and requests a status poll.
+
+        Args:
+            dev (indigo.Device): The device being started.
+        """
         super().deviceStartComm(dev)
         self.logger.info(f"deviceStartComm called for device: {dev.name} (type: {dev.deviceTypeId})")
         # Refresh the state list in case Devices.xml gained new states since this
@@ -92,13 +137,26 @@ class Plugin(indigo.PluginBase):
             self.logger.debug(f"Initial states for {dev.name}: {dev.states}")
             asyncio.run_coroutine_threadsafe(self.poll_shade_status(dev), self.loop)
 
-    def deviceStopComm(self, dev):
+    def deviceStopComm(self, dev: indigo.Device) -> None:
+        """Stop communication with a device when it's disabled/deleted.
+
+        For a Pulse 2 Hub device, tears down its connection and background
+        tasks via ``_disconnect_hub``.
+
+        Args:
+            dev (indigo.Device): The device being stopped.
+        """
         super().deviceStopComm(dev)
         self.logger.info(f"deviceStopComm called for device: {dev.name} (type: {dev.deviceTypeId})")
         if dev.deviceTypeId == "pulseHub":
             self._disconnect_hub(dev)
 
-    def deviceDeleted(self, dev):
+    def deviceDeleted(self, dev: indigo.Device) -> None:
+        """Clean up internal tracking state when a device is deleted.
+
+        Args:
+            dev (indigo.Device): The device that was deleted.
+        """
         self.logger.debug(f"deviceDeleted called for device: {dev.name} (type: {dev.deviceTypeId})")
         if dev.deviceTypeId == "shadeDevice":
             shade_id = dev.pluginProps.get("shadeID", "")
@@ -112,8 +170,12 @@ class Plugin(indigo.PluginBase):
                         break
                 self.logger.info(f"Cleaned up tracking for deleted shade {dev.name} (ID: {shade_id})")
 
-    def _disconnect_hub(self, dev):
-        """Tear down an active hub connection (websocket + background tasks), if any."""
+    def _disconnect_hub(self, dev: indigo.Device) -> None:
+        """Tear down an active hub connection (websocket + background tasks), if any.
+
+        Args:
+            dev (indigo.Device): The Pulse 2 Hub device to disconnect.
+        """
         if dev.id not in self.hubs:
             return
         hub = self.hubs[dev.id]
@@ -142,8 +204,17 @@ class Plugin(indigo.PluginBase):
         dev.updateStateOnServer("hubStatus", "Disconnected")
         self.logger.debug(f"Stopped hub tracking for {dev.name}")
 
-    def reconnectHub(self, action, dev):
-        """Device action: force-disconnect and reconnect a hub (e.g. after network issues)."""
+    def reconnectHub(self, action: Optional[indigo.PluginAction], dev: indigo.Device) -> None:
+        """Device action: force-disconnect and reconnect a hub (e.g. after network issues).
+
+        Also called internally (with ``action=None``) by ``hub_heartbeat`` to
+        auto-reconnect after repeated consecutive failures.
+
+        Args:
+            action (Optional[indigo.PluginAction]): The triggering Indigo action,
+                or None when called internally by the heartbeat auto-reconnect.
+            dev (indigo.Device): The Pulse 2 Hub device to reconnect.
+        """
         hub_ip = dev.pluginProps.get("hubIP", "")
         if not hub_ip:
             self.logger.error(f"Cannot reconnect hub {dev.name}: no hub IP specified")
@@ -153,7 +224,13 @@ class Plugin(indigo.PluginBase):
         dev.updateStateOnServer("hubStatus", "Connecting...")
         asyncio.run_coroutine_threadsafe(self.connect_to_hub(dev.id, hub_ip), self.loop)
 
-    def deviceUpdated(self, origDev, newDev):
+    def deviceUpdated(self, origDev: indigo.Device, newDev: indigo.Device) -> None:
+        """Reconnect a hub device if its IP address was changed while connected.
+
+        Args:
+            origDev (indigo.Device): The device's state before the edit.
+            newDev (indigo.Device): The device's state after the edit.
+        """
         super().deviceUpdated(origDev, newDev)
         if newDev.pluginId != self.pluginId or newDev.deviceTypeId != "pulseHub":
             return
@@ -166,7 +243,19 @@ class Plugin(indigo.PluginBase):
                 newDev.updateStateOnServer("hubStatus", "Connecting...")
                 asyncio.run_coroutine_threadsafe(self.connect_to_hub(newDev.id, new_ip), self.loop)
 
-    def validateDeviceConfigUi(self, valuesDict, typeId, devId):
+    def validateDeviceConfigUi(self, valuesDict: indigo.Dict, typeId: str, devId: int) -> tuple:
+        """Validate the New/Edit Device dialog before it's allowed to save.
+
+        Args:
+            valuesDict (indigo.Dict): The dialog's current field values.
+            typeId (str): The device type being configured (``pulseHub`` or ``shadeDevice``).
+            devId (int): The device's ID (0 for a device being newly created).
+
+        Returns:
+            tuple: ``(True, valuesDict)`` if valid, or
+                ``(False, valuesDict, errorsDict)`` with per-field error messages
+                if not.
+        """
         errors_dict = indigo.Dict()
         if typeId == "pulseHub":
             hub_ip = valuesDict.get("hubIP", "").strip()
@@ -190,8 +279,12 @@ class Plugin(indigo.PluginBase):
             return (False, valuesDict, errors_dict)
         return (True, valuesDict)
 
-    def validate_states(self, dev):
-        """Validate and log the current states of the device."""
+    def validate_states(self, dev: indigo.Device) -> None:
+        """Log a warning/error if a critical shade state is missing or empty.
+
+        Args:
+            dev (indigo.Device): The shade device whose current states to check.
+        """
         states = dev.states
         self.logger.debug(f"Validated states for {dev.name}: {states}")
         if "BatteryVolts" not in states:
@@ -207,7 +300,19 @@ class Plugin(indigo.PluginBase):
         elif states["BlindPosition"] is None:
             self.logger.warning(f"BlindPosition state is empty for {dev.name}")
 
-    async def connect_to_hub(self, dev_id, hub_ip):
+    async def connect_to_hub(self, dev_id: int, hub_ip: str) -> None:
+        """Bring a Pulse 2 Hub online and start its background tasks.
+
+        Creates the ``aiopulse2.Hub``, waits up to 15s for it to report a
+        complete shade list, discovers/registers those shades, then starts
+        the hub's heartbeat and battery-refresh background tasks (tracked in
+        ``self.heartbeat_tasks``/``self.battery_refresh_tasks`` so
+        ``_disconnect_hub`` can cancel them cleanly).
+
+        Args:
+            dev_id (int): The Indigo device ID of the Pulse 2 Hub device.
+            hub_ip (str): The hub's local IP address.
+        """
         try:
             self.logger.info(f"Attempting to initialize hub at {hub_ip}...")
             hub = Hub(hub_ip)
@@ -233,8 +338,12 @@ class Plugin(indigo.PluginBase):
         except Exception:
             self.logger.exception(f"Failed to initialize hub at {hub_ip}")
 
-    async def request_battery_info(self, hub):
-        """Force a shadow query to get battery info."""
+    async def request_battery_info(self, hub: Hub) -> None:
+        """Force a shadow query to get battery info for any roller missing it.
+
+        Args:
+            hub (Hub): The connected hub whose rollers to query.
+        """
         for roller_id, shade in hub.rollers.items():
             battery = getattr(shade, 'battery', None)
             if battery is None:
@@ -247,8 +356,15 @@ class Plugin(indigo.PluginBase):
                     }
                 })
 
-    async def battery_refresh(self, hub_dev_id):
-        """Periodically refresh battery info."""
+    async def battery_refresh(self, hub_dev_id: int) -> None:
+        """Periodically (every 5 minutes) refresh battery info for a hub's rollers.
+
+        Runs until the hub is removed from ``self.hubs`` or this task is
+        cancelled (e.g. by ``_disconnect_hub``).
+
+        Args:
+            hub_dev_id (int): The Indigo device ID of the hub to refresh.
+        """
         hub = self.hubs.get(hub_dev_id)
         if not hub:
             self.logger.warning(f"Battery refresh skipped for {hub_dev_id} - hub not found")
@@ -267,8 +383,13 @@ class Plugin(indigo.PluginBase):
             self.logger.debug(f"Battery refresh task for hub {hub_dev_id} was cancelled")
             raise
 
-    def _set_hub_status(self, hub_dev_id, connected):
-        """Reflect hub connectivity and metadata onto the hub device's states and Indigo's error indicator."""
+    def _set_hub_status(self, hub_dev_id: int, connected: bool) -> None:
+        """Reflect hub connectivity and metadata onto the hub device's states and Indigo's error indicator.
+
+        Args:
+            hub_dev_id (int): The Indigo device ID of the hub.
+            connected (bool): Whether the hub is currently connected.
+        """
         if hub_dev_id not in indigo.devices:
             return
         dev = indigo.devices[hub_dev_id]
@@ -287,13 +408,16 @@ class Plugin(indigo.PluginBase):
             dev.updateStateOnServer("hubStatus", "Disconnected")
             dev.setErrorStateOnServer("Unresponsive")
 
-    async def hub_heartbeat(self, hub_dev_id):
+    async def hub_heartbeat(self, hub_dev_id: int) -> None:
         """Periodic check to ensure hub connectivity using hub.connected status.
 
         Auto-reconnects after repeated consecutive failures so a dropped
         connection recovers without requiring the user to notice and run
         the "Reconnect Hub" action manually. Also mirrors connectivity onto
         the hub device's `hubStatus` state and Indigo's error indicator.
+
+        Args:
+            hub_dev_id (int): The Indigo device ID of the hub to monitor.
         """
         max_consecutive_failures = 3  # ~90 seconds unresponsive before auto-reconnecting
         hub = self.hubs.get(hub_dev_id)
@@ -338,11 +462,27 @@ class Plugin(indigo.PluginBase):
                 # connect_to_hub() starts a fresh heartbeat task for this hub, so stop this one.
                 break
 
-    def _should_log_changes(self, dev):
-        """Whether this shade's per-device 'log changes' checkbox is enabled (defaults on)."""
+    def _should_log_changes(self, dev: indigo.Device) -> bool:
+        """Whether this shade's per-device 'log changes' checkbox is enabled (defaults on).
+
+        Args:
+            dev (indigo.Device): The shade device to check.
+
+        Returns:
+            bool: True if movement/action changes should be logged at info level.
+        """
         return str(dev.pluginProps.get("logChanges", True)).lower() == "true"
 
-    def _shade_update_callback(self, shade):
+    def _shade_update_callback(self, shade: Roller) -> None:
+        """Handle a push update from ``aiopulse2`` when a shade's state changes.
+
+        Always refreshes the Indigo device's state (battery/signal/position
+        included), and additionally logs an info-level message when the
+        shade's position actually changed.
+
+        Args:
+            shade (Roller): The aiopulse2 shade object that changed.
+        """
         shade_id = shade.id
         dev_id = self.shades.get(shade_id)
         if dev_id is not None and dev_id in indigo.devices:
@@ -358,7 +498,12 @@ class Plugin(indigo.PluginBase):
                 self.logger.info(f"Shade {dev.name} moved to {100 - closed_percent}%")
             self.last_states[shade_id] = closed_percent
 
-    async def discover_shades(self, hub_dev_id):
+    async def discover_shades(self, hub_dev_id: int) -> None:
+        """Register every shade a hub currently reports, retrying once if none are seen yet.
+
+        Args:
+            hub_dev_id (int): The Indigo device ID of the hub whose shades to discover.
+        """
         hub = self.hubs.get(hub_dev_id)
         if hub:
             try:
@@ -374,8 +519,12 @@ class Plugin(indigo.PluginBase):
             except Exception:
                 self.logger.exception("Error discovering shades")
 
-    def _register_shade(self, shade):
-        """Create the Indigo device for a newly-seen shade (if needed) and subscribe to its updates."""
+    def _register_shade(self, shade: Roller) -> None:
+        """Create the Indigo device for a newly-seen shade (if needed) and subscribe to its updates.
+
+        Args:
+            shade (Roller): The aiopulse2 shade object to register.
+        """
         shade_id = shade.id
         if shade_id not in self.shades:
             new_dev = indigo.device.create(
@@ -403,7 +552,12 @@ class Plugin(indigo.PluginBase):
         self.logger.info(f"Found shade: {shade.name} (ID: {shade_id})")
         self.logger.debug(f"Subscribed to updates for shade {shade_id}")
 
-    async def poll_hub(self, hub_dev_id):
+    async def poll_hub(self, hub_dev_id: int) -> None:
+        """Poll a hub once (right after connecting) to set every shade's initial state.
+
+        Args:
+            hub_dev_id (int): The Indigo device ID of the hub to poll.
+        """
         hub = self.hubs.get(hub_dev_id)
         if hub and hub_dev_id in self.hubs:
             try:
@@ -420,7 +574,12 @@ class Plugin(indigo.PluginBase):
         else:
             self.logger.debug("Hub not found, skipping poll")
 
-    async def poll_shade_status(self, dev):
+    async def poll_shade_status(self, dev: indigo.Device) -> None:
+        """Refresh a single shade device's state from its current hub-side status.
+
+        Args:
+            dev (indigo.Device): The shade device to refresh.
+        """
         shade_id = dev.pluginProps.get("shadeID", "")
         hub = next((hub for hub in self.hubs.values() if shade_id in hub.rollers), None)
         if hub:
@@ -432,7 +591,13 @@ class Plugin(indigo.PluginBase):
 
     _ACTION_LABELS = {"up": "Opening", "down": "Closing", "stopped": "Stopped"}
 
-    def update_shade_state(self, dev, shade):
+    def update_shade_state(self, dev: indigo.Device, shade: Roller) -> None:
+        """Write a shade's current position/battery/signal/movement onto its Indigo device.
+
+        Args:
+            dev (indigo.Device): The Indigo device to update.
+            shade (Roller): The aiopulse2 shade object to read state from.
+        """
         closed_percent = getattr(shade, 'closed_percent', 0)
         position = 100 - closed_percent
         battery = getattr(shade, 'battery', None)
@@ -462,7 +627,17 @@ class Plugin(indigo.PluginBase):
         ])
         self.validate_states(dev)
 
-    def actionControlDimmerRelay(self, action, dev):
+    def actionControlDimmerRelay(self, action: indigo.PluginAction, dev: indigo.Device) -> None:
+        """Handle a native dimmer action (On/Off/Set/Brighten/Dim/Request Status) on a shade.
+
+        On respects the device's "Default Brightness" setting if configured;
+        position is inverted between Indigo's "openness" brightness and
+        ``aiopulse2``'s ``closed_percent`` at this boundary.
+
+        Args:
+            action (indigo.PluginAction): The dimmer/relay action to perform.
+            dev (indigo.Device): The shade device the action applies to.
+        """
         self.logger.debug(f"actionControlDimmerRelay called: {action.deviceAction}, value: {action.actionValue}")
         if dev.deviceTypeId == "shadeDevice":
             shade_id = dev.pluginProps.get("shadeID", "")
@@ -510,8 +685,13 @@ class Plugin(indigo.PluginBase):
             else:
                 self.logger.error(f"No hub found for shade {shade_id}")
 
-    def stopShade(self, action, dev):
-        """Device action: stop a shade mid-travel."""
+    def stopShade(self, action: indigo.PluginAction, dev: indigo.Device) -> None:
+        """Device action: stop a shade mid-travel.
+
+        Args:
+            action (indigo.PluginAction): The triggering Indigo action.
+            dev (indigo.Device): The shade device to stop.
+        """
         shade_id = dev.pluginProps.get("shadeID", "")
         hub = next((hub for hub in self.hubs.values() if shade_id in hub.rollers), None)
         if hub:
@@ -525,7 +705,28 @@ class Plugin(indigo.PluginBase):
         else:
             self.logger.error(f"No hub found for shade {shade_id}")
 
-    async def move_shade(self, shade, dev, fully_open=False, fully_close=False, target=None, stop=False):
+    async def move_shade(
+        self,
+        shade: Roller,
+        dev: indigo.Device,
+        fully_open: bool = False,
+        fully_close: bool = False,
+        target: Optional[int] = None,
+        stop: bool = False,
+    ) -> None:
+        """Send a movement command to a shade.
+
+        Exactly one of ``stop``, ``fully_open``, ``fully_close``, or ``target``
+        is expected to be set by the caller.
+
+        Args:
+            shade (Roller): The aiopulse2 shade object to command.
+            dev (indigo.Device): The Indigo device, used only for log messages.
+            fully_open (bool): If True, move the shade fully open.
+            fully_close (bool): If True, move the shade fully closed.
+            target (Optional[int]): If set, move to this ``closed_percent`` value.
+            stop (bool): If True, stop the shade's current movement instead of moving it.
+        """
         try:
             if stop:
                 await shade.move_stop()
