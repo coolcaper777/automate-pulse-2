@@ -3,7 +3,7 @@
 An [Indigo Domotics](https://www.indigodomo.com/) plugin that integrates **Rollease Acmeda Pulse 2** motorized shade hubs, exposing each hub and each shade as native Indigo devices.
 
 - **Plugin ID:** `com.coolcaper.automatepulse2`
-- **Requires:** Indigo Server API 3.1+
+- **Requires:** Indigo 2022.1.2+ (Server API 3.1+)
 - **Python dependency:** [`aiopulse2`](https://pypi.org/project/aiopulse2/) 0.10.0 (bundled)
 
 ## Installation
